@@ -285,6 +285,8 @@ class Search(APIBase):
         self._exactresults = []
         self._page = page
         APIBase.__init__(self)
+        for k, v in self._id.iteritems():
+            self._params[k] = v
         self._params['q'] = self._id
         self._params['page'] = self._page
 

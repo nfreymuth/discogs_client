@@ -202,7 +202,7 @@ Get the `Label`'s parent label, if it exists:
 
 To search the database, pass your query into a `Search`:
 
-    >>> s = discogs.Search('autechre')
+    >>> s = discogs.Search({'q':'autechre'})
 
 There may be results that exactly match your query:
 
@@ -216,3 +216,4 @@ Any other results are paginated:
     >>> s.results(page=2)
     [...]
 
+Parameters other than 'q' are available at https://www.discogs.com/developers/resources/database/search-endpoint.html
