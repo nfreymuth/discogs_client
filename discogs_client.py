@@ -126,7 +126,7 @@ class Artist(APIBase):
         APIBase.__init__(self)
 
     def __str__(self):
-        return '<%s "%s">' % (self.__class__.__name__, self._anv + '*' if self._anv else self._id)
+        return '<%s "%s">' % (self.__class__.__name__, self._anv + '*' if self._anv else self._id.encode('utf-8'))
 
     @property
     def name(self):
