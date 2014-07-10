@@ -3,14 +3,18 @@
 [![Build Status](https://travis-ci.org/discogs/discogs_client.png?branch=master)](https://travis-ci.org/discogs/discogs_client)
 [![Coverage Status](https://coveralls.io/repos/discogs/discogs_client/badge.png)](https://coveralls.io/r/discogs/discogs_client)
 
-This is the official Discogs API client for Python. You can use it to query the
-Discogs music database for metadata on artists, releases, and more.
+This is a fork of the official Discogs API client for Python. It has been updated to handle all search parameters,
+and the API changes which broke the official client search function. It is ready for the August 22, 2014 changeset.
+
+There are many changes to this client; it is not backwards compatible with the official API.
+
+You can use it to query the Discogs music database for metadata on artists, releases, and more.
 
 ## Installation
 
 Install the client from PyPI using your favorite package manager.
 
-    $ pip install discogs-client
+    $ pip install -e git+https://github.com/nfreymuth/discogs_client.git@66e42162d947107df5716fb42f1bb5c66843c4c7#egg=discogs_client
 
 ## Usage
 
@@ -22,7 +26,7 @@ You also need to set the User-Agent of your client to something unique before yo
 
     >>> discogs.user_agent = 'AwesomeDiscogsBrowser/0.1 +http://adb.example.com'
     >>> discogs.user_agent = 'LibraryMetadataEnhancer/0.3 +http://example.com/lime'
-    >>> discogs.user_agent = 'MyDiscogsClient/1.0 +http://mydiscogsclient.org'
+    >>> discogs.user_agent = 'PythonCLITesting/1.0 +http://immersive.li'
 
 ### Getting data
 
@@ -43,14 +47,14 @@ For example, `Artist`s have two convenience properties -- `aliases` and
 remainder of an object's metadata, use the `data` dictionary, which contains the
 raw information received from the API.
 
-    >>> discogs.Artist('Aphex Twin').data['realname']
+    >>> discogs.Artist(45).data['realname']
     u'...'
 
 ## Artist
     
 Query for an artist using the artist's name:
 
-    >>> artist = discogs.Artist('Aphex Twin')
+    >>> artist = discogs.Artist(45)
     >>> print artist
     <Artist "...">
     >>> 'name' in artist.data.keys()
@@ -65,8 +69,13 @@ Get a list of `Artist`s representing this artist's aliases:
 
 Get a list of `Release`s by this artist:
 
-    >>> artist.releases
+    >>> artist.releases.releases()
     [...]
+
+An `Artist`s `Release`s are paginated:
+
+    >>> artist.releases.pages
+    "..."
 
 ### Possible `data` keys
 
@@ -171,13 +180,18 @@ Get the tracklist for this `MasterRelease`:
 
 Query for a label using the label's name:
 
-    >>> label = discogs.Label('Warp Records')
+    >>> label = discogs.Label(7)
 
 ### Special properties
 
 Get a list of `Release`s from this `Label`:
 
-    >>> label.releases
+    >>> label.releases.releases()
+    [...]
+
+`Release`s are paginated:
+
+    >>> label.releases.releases(page=2)
     [...]
 
 Get a list of `Label`s representing sublabels associated with this `Label`:
@@ -188,7 +202,7 @@ Get a list of `Label`s representing sublabels associated with this `Label`:
 Get the `Label`'s parent label, if it exists:
 
     >>> label.parent_label
-    <Label "Warp Records Limited">
+    <Label "1000">
 
 ### Possible `data` keys
 

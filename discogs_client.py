@@ -42,7 +42,6 @@ class PaginationError(DiscogsAPIError):
     def __str__(self):
         return repr(self.msg)
 
-
 class APIBase(object):
     def __init__(self):
         self._cached_response = None
@@ -89,6 +88,19 @@ class APIBase(object):
             status_code = self._response.status_code
             raise HTTPError(status_code)
 
+class APIV2Base(APIBase):
+    """
+    Handles changes to the API from the discogs team as of August 22, 2014
+    """ 
+    @property
+    def data(self):
+        if self._response.content and self._response.status_code == 200:
+            release_json = json.loads(self._response.content)
+            return release_json
+        else:
+            status_code = self._response.status_code
+            raise HTTPError(status_code)    
+
 def _parse_credits(extraartists):
     """
     Parse release and track level credits
@@ -116,12 +128,12 @@ def _class_from_string(api_string):
 
     return class_map[api_string]
 
-class Artist(APIBase):
-    def __init__(self, name, anv=None):
-        self._id = name
+class Artist(APIV2Base):
+    def __init__(self, id, anv=None):
+        self._id = id
+        self._name = None
         self._aliases = []
         self._namevariations = []
-        self._releases = []
         self._anv = anv or None
         APIBase.__init__(self)
 
@@ -129,8 +141,12 @@ class Artist(APIBase):
         return '<%s "%s">' % (self.__class__.__name__, self._anv + '*' if self._anv else self._id.encode('utf-8'))
 
     @property
+    def _uri_name(self):
+        return 'artists'
+
+    @property
     def name(self):
-        return self._id
+        return self.data.get('name')
 
     @property
     def anv(self):
@@ -145,17 +161,11 @@ class Artist(APIBase):
 
     @property
     def releases(self):
-        # TODO: Implement fetch many release IDs
-        #return [Release(r.get('id') for r in self.data.get('releases')]
-        if not self._releases:
-            self._params.update({'releases': '1'})
-            self._clear_cache()
+        self._params.update({'releases': '1'})
+        self._clear_cache()
+        return ReleaseList(self.data.get('releases_url'))
 
-            for r in self.data.get('releases', []):
-                self._releases.append(_class_from_string(r['type'])(r['id']))
-        return self._releases
-
-class Release(APIBase):
+class Release(APIV2Base):
     def __init__(self, id):
         self._id = id
         self._artists = []
@@ -164,6 +174,10 @@ class Release(APIBase):
         self._credits = None
         self._tracklist = []
         APIBase.__init__(self)
+
+    @property
+    def _uri_name(self):
+        return 'releases'
 
     @property
     def artists(self):
@@ -219,7 +233,7 @@ class MasterRelease(APIBase):
         self._artists = []
         APIBase.__init__(self)
 
-    # Override class name introspection in BaseAPI since it would otherwise return "masterrelease"
+    # TODO: is 404ing on 'masters', but not in browser.
     @property
     def _uri_name(self):
         return 'master'
@@ -252,33 +266,83 @@ class MasterRelease(APIBase):
     def tracklist(self):
         return self.key_release.tracklist
 
-class Label(APIBase):
-    def __init__(self, name):
-        self._id = name
+class Label(APIV2Base):
+    def __init__(self, id):
+        self._id = id
         self._sublabels = []
         self._parent_label = None
         APIBase.__init__(self)
 
     @property
+    def _uri_name(self):
+        return 'labels'
+
+    @property
     def sublabels(self):
         if not self._sublabels:
             for sublabel in self.data.get('sublabels', []):
-                self._sublabels.append(Label(sublabel))
+                self._sublabels.append(Label(sublabel['id']))
         return self._sublabels
 
     @property
     def parent_label(self):
-        if not self._parent_label and self.data.get('parentLabel'):
-            self._parent_label = Label(self.data.get('parentLabel'))
+        if not self._parent_label and self.data.get('parent_label').get('id'):
+            self._parent_label = Label(self.data.get('parent_label').get('id'))
         return self._parent_label
 
     @property
     def releases(self):
         self._params.update({'releases': '1'})
         self._clear_cache()
-        return self.data.get('releases')
+        return ReleaseList(self.data.get('releases_url'))
 
-class Search(APIBase):
+class PaginatedResponse(APIV2Base):
+    @property
+    def numresults(self):
+        if not self.data:
+            return 0
+        return int(self.data.get('pagination').get('items', 0))
+
+    @property
+    def pages(self):
+        if not self.data:
+            return 0
+        return self.data.get('pagination').get('pages')
+
+class ReleaseList(PaginatedResponse):
+    def __init__(self, url, page=1):
+        self._releases = {}
+        self._page = page
+        self._id = url
+        APIBase.__init__(self)
+    
+    @property
+    def _uri(self):
+        return '%s' % self._id
+
+    def releases(self, page=1):
+        page_key = 'page%s' % page
+
+        if page != self._page:
+            if page > self.pages:
+                raise PaginationError('Page number exceeds maximum number of pages returned.')
+            self._params['page'] = page
+            self._clear_cache()
+
+        if not self.data:
+            return []
+
+        if page_key not in self._releases:
+            self._releases[page_key] = []
+            for release in self.data.get('releases', []):
+                try:
+                    self._releases[page_key].append(_class_from_string(release['type'])(release['id']))
+                except KeyError:
+                    self._releases[page_key].append(Release(release.get("id")))
+
+        return self._releases[page_key]
+
+class Search(PaginatedResponse):
     def __init__(self, query, page=1):
         self._id = query
         self._results = {}
@@ -289,6 +353,10 @@ class Search(APIBase):
             self._params[k] = v
         self._params['q'] = self._id
         self._params['page'] = self._page
+
+    @property
+    def _uri_name(self):
+        return 'database/search'
 
     def _to_object(self, result):
         id = result['title']
@@ -326,19 +394,8 @@ class Search(APIBase):
 
         if page_key not in self._results:
             self._results[page_key] = []
-            for result in self.data['searchresults']['results']:
+            for result in self.data['results']:
                 self._results[page_key].append(self._to_object(result))
 
         return self._results[page_key]
 
-    @property
-    def numresults(self):
-        if not self.data:
-            return 0
-        return int(self.data['searchresults'].get('numResults', 0))
-
-    @property
-    def pages(self):
-        if not self.data:
-            return 0
-        return (self.numresults / 20) + 1
